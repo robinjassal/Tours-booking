@@ -16,10 +16,10 @@ app.use(express.json());
 //   res.send('you are post to this endpoint');
 // });
 
-app.use((req, res, next) => {
-  console.log('Hello from the middleware');
-  next();
-});
+// app.use((req, res, next) => {
+//   console.log('Hello from the middleware');
+//   next();
+// });
 
 // app.get('/api/v1/tours', getAllTours);
 // app.get('/api/v1/tours/:id', getTour);
