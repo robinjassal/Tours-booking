@@ -1,7 +1,11 @@
+const crypto = require('crypto');
+
 const jwt = require('jsonwebtoken');
+const { promisify } = require('util');
 const catchAsync = require('../utils/catchAsync');
 const User = require('./../models/userModel');
 const AppError = require('../appError');
+const sendEmail = require('../utils/email');
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -47,4 +51,142 @@ const login = catchAsync(async (req, res, next) => {
   });
 });
 
-module.exports = { signup, login };
+const protect = catchAsync(async (req, res, next) => {
+  let token;
+  // 1) Getting token and check if its there
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith('Bearer')
+  ) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+  if (!token) {
+    return next(new AppError('You are not logged In', 401));
+  }
+  // 2) Verification token
+  const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
+
+  // console.log(decoded);
+  // 3) check if user still exists
+  const freshUser = await User.findById(decoded.id);
+  if (!freshUser) {
+    return next(new AppError('your belonging to this token not exist', 401));
+  }
+
+  // 4) check if user changed password after token was issued
+  if (freshUser.changedPasswordAfter(decoded.iat)) {
+    return next(
+      new AppError('User recently changed password .Please login again', 401),
+    );
+  }
+
+  req.user = freshUser;
+  next();
+});
+
+const restrictTo = (...roles) => {
+  return (req, res, next) => {
+    //roles [admin,lead-guide],role='user'
+    if (!roles.includes(req.user.role)) {
+      return next(
+        new AppError('you dont have permission to perform this action', 403),
+      );
+    }
+    next();
+  };
+};
+const forgotPassword = catchAsync(async (req, res, next) => {
+  //1) Get user based on Posted email
+  const user = await User.findOne({ email: req.body.email });
+  if (!user) {
+    return next(new AppError('There is no user with email address', 404));
+  }
+
+  //2) Genrate the random reset token
+  const resetToken = user.createPasswordResetToken();
+  await user.save({ validateBeforeSave: false });
+
+  //3 send reset url email
+
+  const resetURL = `${req.protocol}://${req.get('host')}/v1/users/resetPassword/${resetToken}`;
+  const message = `Forgot your password ? click here to reset ${resetURL}`;
+
+  try {
+    await sendEmail({
+      email: user.email,
+      subject: 'your password reset token only for 10 min',
+      message,
+    });
+    res.status(200).json({
+      status: 'success',
+      message: 'Token sent to email',
+    });
+  } catch (error) {
+    console.log(error);
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+    return next(
+      new AppError('There was an error sending the email try again later', 500),
+    );
+  }
+});
+
+const resetPassword = catchAsync(async (req, res, next) => {
+  // 1) Hash the token from the URL to compare with the DB
+  const hashedToken = crypto
+    .createHash('sha256')
+    .update(req.params.token)
+    .digest('hex');
+
+  // 2) Find user with this token that has not expired
+  const user = await User.findOne({
+    passwordResetToken: hashedToken,
+    passwordResetExpires: { $gt: Date.now() },
+  }).select('+password');
+
+  // 3) Token invalid or expired
+  if (!user) {
+    return next(new AppError('Token is invalid or has expired', 400));
+  }
+
+  // 4) Make sure both fields were sent
+  const { password, passwordConfirm } = req.body;
+  if (!password || !passwordConfirm) {
+    return next(
+      new AppError('Please provide password and passwordConfirm', 400),
+    );
+  }
+
+  // 5) New password must differ from the old one (optional but good)
+  if (await user.correctPassword(password, user.password)) {
+    return next(
+      new AppError('New password cannot be the same as the old one', 400),
+    );
+  }
+
+  // 6) Set new password and clear reset fields
+  user.password = password;
+  user.passwordConfirm = passwordConfirm;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
+
+  // validation ON: checks min length 8 and password === passwordConfirm
+  await user.save();
+
+  // 7) Log the user in
+  const token = signToken(user._id);
+  res.status(200).json({
+    status: 'success',
+    token,
+  });
+});
+
+module.exports = {
+  signup,
+  login,
+  protect,
+  restrictTo,
+  forgotPassword,
+  resetPassword,
+};
