@@ -31,6 +31,10 @@ const getTour = async (req, res, next) => {
   try {
     const id = req.params.id;
     const tour = await Tour.findById(id);
+    // .populate({
+    //   path: 'guides',
+    //   select: '-__v -passwordChangedAt',
+    // });
     // Tour.findOne({_id:id})
     if (!tour) {
       return next(new AppError('No tour found with that ID', 404));
