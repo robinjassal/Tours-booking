@@ -20,19 +20,11 @@ const getAllUsers = catchAsync(async (req, res) => {
     },
   });
 });
-const getUser = (req, res) => {
-  res.status(500).json({
-    status: 'error',
-    message: 'this is not yet defined',
-  });
-};
-const createUser = (req, res) => {
-  res.status(500).json({
-    status: 'error',
-    message: 'this is not yet defined',
-  });
-};
 
+const getMe = (req, res, next) => {
+  req.params.id = req.user.id;
+  next();
+};
 const updateMe = catchAsync(async (req, res, next) => {
   //create error post password data
   if (req.body.password || req.body.passwordConfirm) {
@@ -62,16 +54,59 @@ const deleteMe = catchAsync(async (req, res, next) => {
   });
 });
 
-const updateUser = (req, res) => {
-  res.status(500).json({
-    status: 'error',
-    message: 'this is not yet defined',
+const getUser = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    return next(new AppError('No user found with that ID', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { user },
   });
-};
-const deleteUser = (req, res) => {
+});
+
+// Admin only. Do NOT use this for password updates:
+// findByIdAndUpdate skips the pre('save') hooks, so the password wouldn't be hashed.
+const updateUser = catchAsync(async (req, res, next) => {
+  if (req.body.password || req.body.passwordConfirm) {
+    return next(new AppError('This route is not for password update', 400));
+  }
+
+  const user = await User.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true,
+  });
+
+  if (!user) {
+    return next(new AppError('No user found with that ID', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { user },
+  });
+});
+
+// Admin only: permanently deletes the user
+const deleteUser = catchAsync(async (req, res, next) => {
+  const user = await User.findByIdAndDelete(req.params.id);
+
+  if (!user) {
+    return next(new AppError('No user found with that ID', 404));
+  }
+
+  res.status(204).json({
+    status: 'success',
+    data: null,
+  });
+});
+
+const createUser = (req, res) => {
   res.status(500).json({
     status: 'error',
-    message: 'this is not yet defined',
+    message: 'This route is not defined! Please use /signup instead',
   });
 };
 
@@ -81,6 +116,7 @@ module.exports = {
   createUser,
   updateUser,
   deleteUser,
+  getMe,
   updateMe,
   deleteMe,
 };
