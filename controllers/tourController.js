@@ -30,7 +30,7 @@ const getAllTours = async (req, res) => {
 const getTour = async (req, res, next) => {
   try {
     const id = req.params.id;
-    const tour = await Tour.findById(id);
+    const tour = await Tour.findById(id).populate('reviews');
     // .populate({
     //   path: 'guides',
     //   select: '-__v -passwordChangedAt',

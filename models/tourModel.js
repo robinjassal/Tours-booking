@@ -104,6 +104,7 @@ const tourSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    // reviews: [{ type: mongoose.Schema.ObjectId, ref: 'Review' }], child referencing but it will make long array
   },
   {
     toJSON: { virtuals: true },
@@ -115,6 +116,13 @@ const tourSchema = new mongoose.Schema(
 
 tourSchema.virtual('durationWeeks').get(function () {
   return this.duration / 7;
+});
+
+// Virtual populate
+tourSchema.virtual('reviews', {
+  ref: 'Review',
+  foreignField: 'tour',
+  localField: '_id',
 });
 
 //Doc Middleware : runs before save and create() but not on insertMany
